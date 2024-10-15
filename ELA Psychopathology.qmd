@@ -1,0 +1,1693 @@
+---
+title: "ELA Psychopathology"
+format: html
+editor: visual
+---
+
+# Libraries
+
+```{r}
+# load libraries
+library(tidyverse)
+library(lme4)
+library(broom.mixed)
+library(effectsize)
+library(patchwork)
+library(gt)
+library(gtExtras)
+library(forcats)
+library(ggplot2)
+library(mosaic)
+library(psych)
+library(table1)
+
+# set path
+path <- '/Users/margolewis/Library/CloudStorage/Box-Box/ABCD Tabulated Data/5.1/core'
+```
+
+# ELA
+
+### Demographic Information
+
+##### BMI
+
+```{r}
+file_path <- file.path(path, 'physical-health', 'ph_y_anthro.csv')
+anthro = read.csv(file_path)
+
+anthro_abb <- anthro %>%
+  select(src_subject_id, eventname, anthro_1_height_in, anthroweight1lb)
+
+anthro_abb <- anthro_abb %>% mutate(BMI = anthroweight1lb/((anthro_1_height_in)^2)*703) %>%
+  select(-c(anthro_1_height_in, anthroweight1lb)) %>%
+  filter(eventname=="baseline_year_1_arm_1")
+```
+
+##### Variables: Age, Sex, Race, Ethnicity, Income, Education, Religion
+
+```{r}
+file_path <- file.path(path, 'abcd-general', 'abcd_p_demo.csv')
+demo = read.csv(file_path)
+
+demo_abb <- demo %>%
+  select(src_subject_id, eventname, demo_brthdat_v2, demo_sex_v2, demo_relig_v2, demo_race_a_p___10, demo_race_a_p___11, demo_race_a_p___12, demo_race_a_p___13, demo_race_a_p___14, demo_race_a_p___15, demo_race_a_p___16, demo_race_a_p___17, demo_race_a_p___18, demo_race_a_p___19, demo_race_a_p___20, demo_race_a_p___21, demo_race_a_p___22, demo_race_a_p___23, demo_race_a_p___24, demo_race_a_p___25, demo_race_a_p___77, demo_race_a_p___99, demo_race_a_p___0, demo_prnt_ed_v2, demo_ethn_v2, demo_ethn2_v2, demo_prtnr_ed_v2, demo_comb_income_v2) %>%
+  filter(eventname=="baseline_year_1_arm_1")
+```
+
+##### Clean Variables
+
+```{r}
+# clean age and sex
+demo_abb <- demo_abb %>%
+  mutate(age = demo_brthdat_v2,
+    sex = fct_recode(factor(demo_sex_v2),
+                          "Male" = "1",
+                          "Female" = "2",
+                          "Intersex-Male" = "3")) %>%
+  select(-c(demo_brthdat_v2, demo_sex_v2))
+```
+
+```{r}
+# clean race
+
+# other indicates the individual did not answer their race
+
+demo_abb <- demo_abb %>%
+  mutate(race = case_when(
+                             two > 1 ~ "Two or more races",
+                             demo_race_a_p___11 == 1 ~ "Black",
+                             demo_race_a_p___12 == 1 ~ "American Indian or Alaska Native",
+                             demo_race_a_p___13 == 1 ~ "American Indian or Alaska Native",
+                             demo_race_a_p___14 == 1 ~ "Pacific Islander",
+                             demo_race_a_p___15 == 1 ~ "Pacific Islander",
+                             demo_race_a_p___16 == 1 ~ "Pacific Islander",
+                             demo_race_a_p___17 == 1 ~ "Pacific Islander",
+                             demo_race_a_p___18 == 1 ~ "Asian",
+                             demo_race_a_p___19 == 1 ~ "Asian",
+                             demo_race_a_p___20 == 1 ~ "Asian",
+                             demo_race_a_p___21 == 1 ~ "Asian",
+                             demo_race_a_p___22 == 1 ~ "Asian",
+                             demo_race_a_p___23 == 1 ~ "Asian",
+                             demo_race_a_p___24 == 1 ~ "Asian",
+                             demo_race_a_p___25 == 1 ~ "Other",
+                             demo_race_a_p___10 == 1 ~ "White",
+                             demo_race_a_p___77 == 1 ~ "NA",        #Refuse to answer
+                             demo_race_a_p___99 == 1 ~ "Other",     #Don't know
+                             demo_race_a_p___0 == 1 ~ "NA")) %>%    #None
+  select(-c(aian, pacific, asian, two, demo_race_a_p___10, demo_race_a_p___11, demo_race_a_p___12, demo_race_a_p___13, demo_race_a_p___14, demo_race_a_p___15, demo_race_a_p___16, demo_race_a_p___17, demo_race_a_p___18, demo_race_a_p___19, demo_race_a_p___20, demo_race_a_p___21, demo_race_a_p___22, demo_race_a_p___23, demo_race_a_p___24, demo_race_a_p___25, demo_race_a_p___77, demo_race_a_p___99, demo_race_a_p___0))
+```
+
+```{r}
+# Cleaning ethnicity
+demo_abb <- demo_abb %>%
+  mutate(ethnicity_long = ifelse(demo_ethn_v2==1, demo_ethn2_v2, 0),
+         ethnicity_long = fct_collapse(factor(ethnicity_long),
+                                  "Not Hispanic/Latino/a" = 0,
+                                  "Puerto Rican" = 10,
+                                  "Dominican (Republic)" = 12,
+                                  "Mexican" = 13,
+                                  "Mexican American" = 14,
+                                  "Chicano" = 15,
+                                  "Cuban" = 18,
+                                  "Cuban American" = 19,
+                                  "Central or South American" = 20,
+                                  "Other Latin American" = 40,
+                                  "Other Hispanic" = 41,
+                                  "Unknown" = c(777, 999)),
+         ethnicity = fct_collapse(factor(demo_ethn_v2),
+                                   "Not Hispanic/Latino/a" = 2,
+                                   "Hispanic/Latino/a" = 1,
+                                   "Unknown" = c(777, 999))) %>%
+  select(-c(demo_ethn2_v2, demo_ethn_v2, ethnicity_long))
+```
+
+```{r}
+# Cleaning for religion
+demo_abb <- demo_abb %>%
+  mutate(relig = factor(demo_relig_v2),
+    religion_long = fct_collapse(relig,
+                                 "Mainline Protestant" = "1",
+                                 "Evangelical Protestant" = "2",
+                                 "Historically Black Church" = "3",
+                                 "Roman Catholic (Catholic)" = "4",
+                                 "Jewish (Judaism)" = "5",
+                                 "Mormon (Church of Jesus Christ of Latter Day Saints/LDS)" = "6",
+                                 "Jehovah's Witness" = "7",
+                                 "Muslim (Islam)" = "8",
+                                 "Buddhist" = "9",
+                                 "Hindu" = "10",
+                                 "Orthodox Christian (Greek)" = "11",
+                                 "Unitarian (Universalist)" = "12",
+                                 "Other Christian" = "13",
+                                 "Atheist (do not believe in God)"= "14",
+                                 "Agnostic (not sure if there is a God)" = "15",
+                                 "Something else" = "16",
+                                 "NA" = c("17", "777", "999"))) %>%
+  mutate(religion = fct_collapse(factor(religion_long),
+                                  "Christian" = c("Mainline Protestant", "Evangelical Protestant", "Historically Black Church", "Roman Catholic (Catholic)", "Mormon (Church of Jesus Christ of Latter Day Saints/LDS)", "Jehovah's Witness", "Orthodox Christian (Greek)", "Unitarian (Universalist)", "Other Christian"),
+                                  "Jewish" = "Jewish (Judaism)",
+                                  "Muslim" = "Muslim (Islam)",
+                                  "Buddhist" = "Buddhist",
+                                  "Hindu" = "Hindu",
+                                  "Not religious" = c("Atheist (do not believe in God)", "Agnostic (not sure if there is a God)"),
+                                  "NA" = c("Something else", "NA"))) %>%
+  select(-c(demo_relig_v2, relig, religion_long))
+```
+
+```{r}
+# Cleaning education
+demo_abb <- demo_abb %>%
+  mutate(prnt_ed = factor(demo_prnt_ed_v2),
+         prnt_ed = case_when(prnt_ed == 0 ~ 1,
+                          prnt_ed == 1 ~ 1,
+                          prnt_ed == 2 ~ 1,
+                          prnt_ed == 3 ~ 1,
+                          prnt_ed == 4 ~ 1,
+                          prnt_ed == 5 ~ 1,
+                          prnt_ed == 6 ~ 1,
+                          prnt_ed == 7 ~ 1,
+                          prnt_ed == 8 ~ 1,
+                          prnt_ed == 9 ~ 1,
+                          prnt_ed == 10 ~ 1,
+                          prnt_ed == 11 ~ 1,
+                          prnt_ed == 12 ~ 1,
+                          prnt_ed == 13 ~ 2,
+                          prnt_ed == 14 ~ 2,
+                          prnt_ed == 15 ~ 3,
+                          prnt_ed == 16 ~ 3,
+                          prnt_ed == 17 ~ 3,
+                          prnt_ed == 18 ~ 4,
+                          prnt_ed == 19 ~ 5,
+                          prnt_ed == 20 ~ 5,
+                          prnt_ed == 21 ~ 5,
+                          TRUE ~ NA_real_)) %>%
+  mutate(parent1_ed = fct_recode(factor(prnt_ed),
+                              "Less than High School Diploma" = "1",
+                              "High School Diploma/GED" = "2",
+                              "Some College" = "3",
+                              "Bachelor's Degree" = "4",
+                              "Post Graduate Degree" = "5")) %>%
+  mutate(prtnr_ed = factor(demo_prtnr_ed_v2),
+         prtnr_ed = case_when(prtnr_ed == 0 ~ 1,
+                          prtnr_ed == 1 ~ 1,
+                          prtnr_ed == 2 ~ 1,
+                          prtnr_ed == 3 ~ 1,
+                          prtnr_ed == 4 ~ 1,
+                          prtnr_ed == 5 ~ 1,
+                          prtnr_ed == 6 ~ 1,
+                          prtnr_ed == 7 ~ 1,
+                          prtnr_ed == 8 ~ 1,
+                          prtnr_ed == 9 ~ 1,
+                          prtnr_ed == 10 ~ 1,
+                          prtnr_ed == 11 ~ 1,
+                          prtnr_ed == 12 ~ 1,
+                          prtnr_ed == 13 ~ 2,
+                          prtnr_ed == 14 ~ 2,
+                          prtnr_ed == 15 ~ 3,
+                          prtnr_ed == 16 ~ 3,
+                          prtnr_ed == 17 ~ 3,
+                          prtnr_ed == 18 ~ 4,
+                          prtnr_ed == 19 ~ 5,
+                          prtnr_ed == 20 ~ 5,
+                          prtnr_ed == 21 ~ 5,
+                          TRUE ~ NA_real_),
+         parent2_ed = fct_recode(factor(prtnr_ed),
+                              "Less than High School Diploma" = "1",
+                              "High School Diploma/GED" = "2",
+                              "Some College" = "3",
+                              "Bachelor's Degree" = "4",
+                              "Post Graduate Degree" = "5")) %>%
+  mutate(parent_ed = pmax(prnt_ed, prtnr_ed, na.rm=T)) %>%
+  mutate(parent_ed = fct_recode(factor(parent_ed),
+                              "Less than High School Diploma" = "1",
+                              "High School Diploma/GED" = "2",
+                              "Some College" = "3",
+                              "Bachelor's Degree" = "4",
+                              "Post Graduate Degree" = "5")) %>%
+  select(-c(prnt_ed, prtnr_ed, demo_prnt_ed_v2, demo_prtnr_ed_v2, parent1_ed, parent2_ed))
+```
+
+```{r}
+# Cleaning income
+demo_abb <- demo_abb %>%
+  mutate(income = factor(demo_comb_income_v2), 
+         income = fct_collapse(income,
+                               "<$5,000" = "1",
+                               "$5,000-$11,999" = "2",
+                               "$12,000-$15,999" = "3",
+                               "$16,000-$24,999" = "4",
+                               "$25,000-$34,999" = "5",
+                               "$35,000-$49,999" = "6",
+                               "$50,000-$74,999" = "7",
+                               "$75,000-$99,999" = "8",
+                               "$100,000-$199,999" = "9",
+                               ">$200,000" = "10",
+                               "other_level" = NA)) %>%
+  select(-demo_comb_income_v2)
+```
+
+##### Final Demographics
+
+```{r}
+demo_abb <- full_join(demo_abb, anthro_abb)
+```
+
+### Physical and Sexual Violence
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_ksads_ptsd.csv')
+violence = read.csv(file_path)
+
+# create abbreviated dataset
+violence_abb = violence %>%
+  select(src_subject_id, eventname, ksads_ptsd_raw_760_p,ksads_ptsd_raw_761_p,ksads_ptsd_raw_762_p,ksads_ptsd_raw_763_p,ksads_ptsd_raw_764_p,ksads_ptsd_raw_765_p,ksads_ptsd_raw_767_p,ksads_ptsd_raw_768_p,ksads_ptsd_raw_769_p)
+
+# calculate sums
+violence_sum <- violence_abb %>%
+  select(ksads_ptsd_raw_760_p,ksads_ptsd_raw_761_p,ksads_ptsd_raw_762_p,ksads_ptsd_raw_763_p,ksads_ptsd_raw_764_p,ksads_ptsd_raw_765_p,ksads_ptsd_raw_767_p,ksads_ptsd_raw_768_p,ksads_ptsd_raw_769_p)
+sums <- rowSums(violence_sum, na.rm = TRUE)
+violence_abb$tot_score_v <- sums
+
+table(violence_abb$tot_score)
+colnames(violence_abb)
+```
+
+### Parental Instability
+
+##### Dataset 1
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_fhx.csv')
+fam_history = read.csv(file_path)
+
+fam_history_abb <- fam_history %>%
+  select(src_subject_id,eventname,famhx_4_p,fam_history_5_yes_no,fam_history_6_yes_no,fam_history_7_yes_no,fam_history_8_yes_no, fam_history_9_yes_no, fam_history_10_yes_no,fam_history_11_yes_no,fam_history_12_yes_no,fam_history_13_yes_no)
+
+# pull out baseline for fam history
+fam_baseline <- fam_history_abb %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# since fam history is the same across all years, change event name to year 2
+fam_year2 <- fam_baseline
+fam_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+fam_history_abb <- rbind(fam_baseline,fam_year2)
+
+# Changed for NA values
+fam_history_abb <- fam_history_abb %>%
+  mutate(famhx_4_p = ifelse((famhx_4_p==7 | famhx_4_p==999), 0, famhx_4_p),
+         fam_history_5_yes_no = ifelse((fam_history_5_yes_no==7 | fam_history_5_yes_no==999), 0, fam_history_5_yes_no),
+         fam_history_6_yes_no = ifelse((fam_history_6_yes_no==7 | fam_history_6_yes_no==999), 0, fam_history_6_yes_no),
+         fam_history_7_yes_no = ifelse((fam_history_7_yes_no==7 | fam_history_7_yes_no==999), 0, fam_history_7_yes_no),
+         fam_history_8_yes_no = ifelse((fam_history_8_yes_no==7 | fam_history_8_yes_no==999), 0, fam_history_8_yes_no),
+         fam_history_9_yes_no = ifelse((fam_history_9_yes_no==7 | fam_history_9_yes_no==999), 0, fam_history_9_yes_no),
+         fam_history_10_yes_no = ifelse((fam_history_10_yes_no==7 | fam_history_10_yes_no==999), 0, fam_history_10_yes_no),
+         fam_history_11_yes_no = ifelse((fam_history_11_yes_no==7 | fam_history_11_yes_no==999), 0, fam_history_11_yes_no),
+         fam_history_12_yes_no = ifelse((fam_history_12_yes_no==7 | fam_history_12_yes_no==999), 0, fam_history_12_yes_no),
+         fam_history_13_yes_no = ifelse((fam_history_13_yes_no==7 | fam_history_13_yes_no==999), 0, famhx_4_p))
+
+# calculate sums
+fam_history_sum <- fam_history_abb %>%
+  select(famhx_4_p,fam_history_5_yes_no,fam_history_6_yes_no,fam_history_7_yes_no,fam_history_8_yes_no, fam_history_9_yes_no, fam_history_10_yes_no,fam_history_11_yes_no,fam_history_12_yes_no,fam_history_13_yes_no)
+sums <- rowSums(fam_history_sum, na.rm = TRUE)
+fam_history_abb$tot_score <- sums
+
+table(fam_history_abb$tot_score)
+```
+
+##### Dataset 2
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_asr.csv')
+asr_parent = read.csv(file_path)
+
+asr_parent_abb <- asr_parent %>%
+  select(src_subject_id, eventname, asr_q68_p, asr_q73_p, asr_q91_p, asr_q92_p, asr_q95_p, asr_q97_p, asr_q05_p, asr_q57_p, asr_q16_p, asr_q20_p, asr_q21_p, asr_q31_p, asr_q37_p, asr_q76_p, asr_q103_p, asr_scr_anxdisord_r, asr_scr_somaticpr_r, asr_scr_depress_r, asr_scr_avoidant_r, asr_scr_adhd_r, asr_scr_antisocial_r, asr_scr_inattention_r, asr_scr_hyperactive_r)
+
+asr_parent_abb <- asr_parent_abb %>%
+  mutate(b68 = ifelse(asr_q68_p > 0, 1, 0),
+         b73 = ifelse(asr_q73_p > 0, 1, 0),
+         b91 = ifelse(asr_q91_p > 0, 1, 0),
+         b92 = ifelse(asr_q92_p > 0, 1, 0),
+         b95 = ifelse(asr_q95_p > 0, 1, 0),
+         b97 = ifelse(asr_q97_p > 0, 1, 0),
+         b05 = ifelse(asr_q05_p > 0, 1, 0),
+         b57 = ifelse(asr_q57_p > 0, 1, 0),
+         b16 = ifelse(asr_q16_p > 0, 1, 0),
+         b20 = ifelse(asr_q20_p > 0, 1, 0),
+         b21 = ifelse(asr_q21_p > 0, 1, 0),
+         b31 = ifelse(asr_q31_p > 0, 1, 0),
+         b37 = ifelse(asr_q37_p > 0, 1, 0),
+         b76 = ifelse(asr_q76_p > 0, 1, 0),
+         b103 = ifelse(asr_q103_p > 0, 1, 0))
+
+# calculate sums
+asr_parent_sum <- asr_parent_abb %>%
+  select(b68,b73,b91,b92,b95,b97,b05,b57,b16,b20,b21,b31,b37,b76,b103)
+sums <- rowSums(asr_parent_sum, na.rm = TRUE)
+asr_parent_abb$tot_qs <- sums
+
+asr_parent_abb <- asr_parent_abb %>%
+  mutate(banx = ifelse(asr_scr_anxdisord_r>7, 1, 0),
+         bsom = ifelse(asr_scr_somaticpr_r>9, 1, 0),
+         bdep = ifelse(asr_scr_depress_r>14, 1, 0),
+         bavo = ifelse(asr_scr_avoidant_r>7, 1, 0),
+         badh = ifelse(asr_scr_adhd_r>13, 1, 0),
+         bant = ifelse(asr_scr_antisocial_r>20, 1, 0),
+         bina = ifelse(asr_scr_inattention_r>7, 1, 0),
+         bhyp = ifelse(asr_scr_hyperactive_r>6, 1, 0))
+
+# calculate sums
+asr_parent_sum <- asr_parent_abb %>%
+  select(banx,bsom,bdep,bavo,badh,bant,bina,bhyp)
+sums <- rowSums(asr_parent_sum, na.rm = TRUE)
+asr_parent_abb$tot_bs <- sums
+
+asr_parent_abb$tot_score_qb <- asr_parent_abb$tot_bs + asr_parent_abb$tot_qs
+
+table(asr_parent_abb$tot_bs)
+table(asr_parent_abb$tot_qs)
+table(asr_parent_abb$tot_score_qb)
+```
+
+##### Dataset 3
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_asr.csv')
+parent_usage_2 = read.csv(file_path)
+
+parent_usage_2_abb <- parent_usage_2 %>%
+  select(src_subject_id,eventname,asr_q124_p)
+
+parent_usage_2_abb <- parent_usage_2_abb %>%
+  mutate(bad_tob = ifelse(asr_q124_p > 0, 1, 0))
+
+# calculate sums
+asr_parent_sum_2 <- parent_usage_2_abb %>%
+  select(bad_tob)
+sums <- rowSums(asr_parent_sum_2, na.rm = TRUE)
+parent_usage_2_abb$tot_score_4 <- sums
+
+table(parent_usage_2_abb$tot_score_4)
+```
+
+##### Final Dataset
+
+```{r}
+parent_abb <- fam_history_abb %>%  
+  full_join(asr_parent_abb, by=c("src_subject_id", "eventname")) %>% 
+  full_join(parent_usage_2_abb, by=c("src_subject_id", "eventname")) 
+
+# sum scores
+parent_total <- parent_abb %>%
+  select(tot_score, tot_score_qb, tot_score_4)
+sums <- rowSums(parent_total, na.rm = TRUE)
+parent_abb$tot_score_p <- sums
+  
+parent_abb <- parent_abb %>%
+  select(-c(tot_score_qb, tot_score_4, bad_tob,banx,bsom,bdep,bavo,badh,bant,bina,bhyp,b68,b73,b91,b92,b95,b97,b05,b57,b16,b20,b21,b31,b37,b76,b103, tot_qs, tot_bs))
+colnames(parent_abb) 
+table(parent_abb$tot_score_p)
+```
+
+### Neighborhood Threat
+
+##### Dataset 1
+
+```{r}
+file_path <- file.path(path, 'culture-environment', 'ce_p_nsc.csv')
+neighborhood = read.csv(file_path)
+
+neighborhood_abb <- neighborhood %>%
+  select(src_subject_id,eventname,neighborhood1r_p,neighborhood3r_p,neighborhood2r_p)
+
+neighborhood_abb <- neighborhood_abb %>%
+  mutate(bad_1 = ifelse((neighborhood1r_p==2 | neighborhood1r_p==1), 1, 0),
+         bad_2 = ifelse((neighborhood2r_p==2 | neighborhood2r_p==1), 1, 0),
+         bad_3 = ifelse((neighborhood3r_p==2 | neighborhood3r_p==1), 1, 0))
+
+# calculate sums
+neigh_sum <- neighborhood_abb %>%
+  select(bad_1,bad_2,bad_3)
+sums <- rowSums(neigh_sum, na.rm = TRUE)
+neighborhood_abb$tot_bad <- sums
+
+table(neighborhood_abb$tot_bad)
+```
+
+##### Dataset 2
+
+```{r}
+file_path <- file.path(path, 'culture-environment', 'ce_y_srpf.csv')
+neighborhood_3 = read.csv(file_path)
+
+neighborhood_3_abb <- neighborhood_3 %>%
+  select(src_subject_id,eventname,school_6_y)
+
+table(neighborhood_3_abb$school_6_y)
+
+neighborhood_3_abb <- neighborhood_3_abb %>%
+  mutate(bad_school = ifelse((school_6_y==2 | school_6_y==1), 1, 0))
+
+table(neighborhood_3_abb$bad_school)
+```
+
+##### Final Dataset
+
+```{r}
+neighborhood_abb <- neighborhood_abb %>%
+  full_join(neighborhood_3_abb, by=c("src_subject_id", "eventname"))
+
+# sum scores
+neighborhood_total <- neighborhood_abb %>%
+  select(tot_bad)
+sums <- rowSums(neighborhood_total, na.rm = TRUE)
+neighborhood_abb$tot_score_n <- sums
+
+neighborhood_abb <- neighborhood_abb %>%
+  select(-c(bad_1, bad_2, bad_3, tot_bad, bad_school))
+
+colnames(neighborhood_abb)
+```
+
+### Prenatal Substance Exposure
+
+```{r}
+file_path <- file.path(path, 'physical-health', 'ph_p_dhx.csv')
+substance_expo = read.csv(file_path)
+
+substance_expo_abb = substance_expo %>%
+  select(src_subject_id,eventname,devhx_9_tobacco,devhx_9_alcohol,devhx_9_marijuana,devhx_9_coc_crack,devhx_9_her_morph,devhx_9_oxycont,devhx_8_other_drugs)
+
+# pull out baseline for substance
+substance_baseline <- substance_expo_abb %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# since substance is the same across all years, change event name to year 2
+substance_year2 <- substance_baseline
+substance_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+substance_expo_abb <- rbind(substance_baseline,substance_year2)
+
+# Changed for NA values
+substance_expo_abb <- substance_expo_abb %>%
+  mutate(devhx_9_tobacco = ifelse(devhx_9_tobacco==999, 0, devhx_9_tobacco),
+         devhx_9_alcohol = ifelse(devhx_9_alcohol==999, 0, devhx_9_alcohol),
+         devhx_9_marijuana = ifelse(devhx_9_marijuana==999, 0, devhx_9_marijuana),
+         devhx_9_coc_crack = ifelse(devhx_9_coc_crack==999, 0, devhx_9_coc_crack),
+         devhx_9_her_morph = ifelse(devhx_9_her_morph==999, 0, devhx_9_her_morph),
+         devhx_9_oxycont = ifelse(devhx_9_oxycont==999, 0, devhx_9_oxycont),
+         devhx_8_other_drugs = ifelse(devhx_8_other_drugs==999, 0, devhx_8_other_drugs))
+
+# calculate sums
+substance_sum <- substance_expo_abb %>%
+  select(devhx_9_tobacco,devhx_9_alcohol,devhx_9_marijuana,devhx_9_coc_crack,devhx_9_her_morph,devhx_9_oxycont,devhx_8_other_drugs)
+sums <- rowSums(substance_sum, na.rm = TRUE)
+substance_expo_abb$tot_score_s <- sums
+
+substance_abb <- substance_expo_abb
+```
+
+### Discrimination
+
+```{r}
+file_path <- file.path(path, 'culture-environment', 'ce_y_dm.csv')
+discrim = read.csv(file_path)
+
+# create abbreviated dataset
+discrim_abb = discrim %>%
+  select(src_subject_id, eventname, dim_yesno_q1, dim_yesno_q2, dim_yesno_q3, dim_yesno_q4, dim_matrix_q1, dim_matrix_q2, dim_matrix_q3, dim_matrix_q4, dim_matrix_q5, dim_matrix_q6, dim_matrix_q7)
+
+# pull out year 1
+discrim_1 <- discrim_abb %>%
+  filter(eventname == '1_year_follow_up_y_arm_1')
+
+# pull out year 2
+discrim_2 <- discrim_abb %>%
+  filter(eventname == '2_year_follow_up_y_arm_1')
+
+# change event name to baseline
+discrim_base <- discrim_1
+discrim_base$eventname <- 'baseline_year_1_arm_1'
+
+# add baseline back into the dataset
+discrim_abb <- rbind(discrim_base,discrim_2)
+
+# calculate sums
+discrim_sum <- discrim_abb %>%
+  mutate(bind1 = ifelse(dim_yesno_q1==1, 1, 0),
+         bind2 = ifelse(dim_yesno_q2==1, 1, 0),
+         bind3 = ifelse(dim_yesno_q3==1, 1, 0),
+         bind4 = ifelse(dim_yesno_q4==1, 1, 0)) %>%
+  mutate(bin1 = ifelse(dim_matrix_q1==4 | dim_matrix_q1==5, 1, 0),
+         bin2 = ifelse(dim_matrix_q2==4 | dim_matrix_q2==5, 1, 0),
+         bin3 = ifelse(dim_matrix_q3==4 | dim_matrix_q3==5, 1, 0),
+         bin4 = ifelse(dim_matrix_q4==4 | dim_matrix_q4==5, 1, 0),
+         bin5 = ifelse(dim_matrix_q5==4 | dim_matrix_q5==5, 1, 0),
+         bin6 = ifelse(dim_matrix_q6==4 | dim_matrix_q6==5, 1, 0),
+         bin7 = ifelse(dim_matrix_q7==4 | dim_matrix_q7==5, 1, 0)) %>%
+  select(bind1, bind2, bind3, bind4, bin1, bin2, bin3, bin4, bin5, bin6, bin7)
+sums <- rowSums(discrim_sum, na.rm = TRUE)
+discrim_abb$tot_score_d <- sums
+```
+
+### Scarcity
+
+##### Dataset 1
+
+```{r}
+file_path <- file.path(path, 'abcd-general', 'abcd_p_demo.csv')
+scarcity = read.csv(file_path)
+
+scarcity_tot = scarcity %>%
+  select(src_subject_id, eventname, demo_comb_income_v2, demo_roster_v2, demo_fam_exp1_v2, demo_fam_exp2_v2, demo_fam_exp3_v2, demo_fam_exp4_v2, demo_fam_exp5_v2, demo_fam_exp6_v2, demo_fam_exp7_v2)
+
+# pull out baseline for scarcity
+scarcity_baseline <- scarcity_tot %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# change event name to year 2
+scarcity_year2 <- scarcity_baseline
+scarcity_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+scarcity_tot <- rbind(scarcity_baseline,scarcity_year2)
+
+scarcity_tot <- scarcity_tot %>% 
+        # Relabel income
+        mutate(demo_comb_income_v2 = fct_recode(factor(demo_comb_income_v2),
+                                          "<$5,000" = "1", 
+                                          "$5,000-11,999" = "2",
+                                          "$12,000-15,999" = "3",
+                                          "$16,000-24,999" = "4",
+                                          "$25,000-34,999" = "5", 
+                                          "$35,000-49,999" = "6",
+                                          "$50,000-74,999" = "7",
+                                          "$75,000-99,999" = "8", 
+                                          "$100,000-199,999" = "9",
+                                          "$200,000+" = "10",
+                                          "Don't Know" = "999",
+                                          "Refuse to Answer" = "777")) %>%
+  # Adding in the poverty line
+  # Numbers taken from 2017
+  mutate(for_pov = ifelse((demo_comb_income_v2=="Don't Know" | demo_comb_income_v2=="Refuse to Answer"), 999999, ifelse(demo_comb_income_v2=="<$5,000", 5000, ifelse(demo_comb_income_v2=="$5,000-11,999", 12000, ifelse(demo_comb_income_v2=="$12,000-15,999", 16000, ifelse(demo_comb_income_v2=="$16,000-24,999", 25000, ifelse(demo_comb_income_v2=="$25,000-34,999", 35000, ifelse(demo_comb_income_v2=="$35,000-49,999", 50000, ifelse(demo_comb_income_v2=="$50,000-74,999", 75000, ifelse(demo_comb_income_v2=="$75,000-99,999", 100000, 200000)))))))))) %>%
+  mutate(in_poverty = ifelse(for_pov < (7880+4180*as.numeric(demo_roster_v2)), 1, 0))
+
+# Changed for NA values
+scarcity_tot <- scarcity_tot %>% 
+  mutate(demo_fam_exp1_v2 = ifelse(demo_fam_exp1_v2==777, 0, demo_fam_exp1_v2),
+         demo_fam_exp2_v2 = ifelse(demo_fam_exp2_v2==777, 0, demo_fam_exp2_v2),
+         demo_fam_exp3_v2 = ifelse(demo_fam_exp3_v2==777, 0, demo_fam_exp3_v2),
+         demo_fam_exp4_v2 = ifelse(demo_fam_exp4_v2==777, 0, demo_fam_exp4_v2),
+         demo_fam_exp5_v2 = ifelse(demo_fam_exp5_v2==777, 0, demo_fam_exp5_v2),
+         demo_fam_exp6_v2 = ifelse(demo_fam_exp6_v2==777, 0, demo_fam_exp6_v2),
+         demo_fam_exp7_v2 = ifelse(demo_fam_exp7_v2==777, 0, demo_fam_exp7_v2)) 
+
+# calculate sums
+scarcity_sum <- scarcity_tot %>%
+  select(demo_fam_exp1_v2,demo_fam_exp2_v2,demo_fam_exp3_v2,demo_fam_exp4_v2,demo_fam_exp5_v2,demo_fam_exp6_v2,demo_fam_exp7_v2,in_poverty)
+sums <- rowSums(scarcity_sum, na.rm = TRUE)
+scarcity_tot$tot_score <- sums
+
+table(scarcity_tot$tot_score)
+
+scarcity_tot <- scarcity_tot %>% select(-c("demo_comb_income_v2", "demo_roster_v2", "for_pov"))
+colnames(scarcity_tot)
+```
+
+##### Dataset 2
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_asr.csv')
+scarcity_2 = read.csv(file_path)
+
+scarcity_2_abb = scarcity_2 %>%
+  select(src_subject_id,eventname,asr_q114_p,asr_q117_p,asr_q122_p)
+
+table(scarcity_2_abb$eventname)
+table(scarcity_2_abb$asr_q114_p)
+
+scarcity_2_abb = scarcity_2_abb %>%
+  mutate(bad_debt = ifelse(asr_q114_p>0, 1, 0),
+         bad_manage = ifelse(asr_q117_p>0, 1, 0),
+         bad_job = ifelse(asr_q122_p>0, 1, 0))
+
+# calculate sums
+scarcity_sum_2 <- scarcity_2_abb %>%
+  select(bad_debt,bad_manage,bad_job)
+sums <- rowSums(scarcity_sum_2, na.rm = TRUE)
+scarcity_2_abb$tot_score_2 <- sums
+
+scarcity_2_abb <- scarcity_2_abb %>%
+  select(-c(bad_debt, bad_manage, bad_job))
+
+table(scarcity_2_abb$tot_score_2)
+colnames(scarcity_2_abb)
+```
+
+##### Final Dataset
+
+```{r}
+scarcity_abb <- scarcity_tot %>%
+  full_join(scarcity_2_abb, by=c("src_subject_id", "eventname"))
+
+# sum scores
+scarcity_total <- scarcity_abb %>%
+  select(tot_score, tot_score_2)
+sums <- rowSums(scarcity_total, na.rm = TRUE)
+scarcity_abb$tot_score_sc <- sums
+
+scarcity_abb <- scarcity_abb %>%
+  select(-c(tot_score,tot_score_2))
+```
+
+### Household Dysfunction
+
+##### Dataset 1
+
+```{r}
+# load caregiver data
+file_path <- file.path(path, 'culture-environment', 'ce_y_crpbi.csv')
+caregiver = read.csv(file_path)
+
+caregiver_abb <- caregiver %>%
+  select(src_subject_id,eventname,crpbi_caregiver15_y)
+
+# pull out baseline for caregiver
+care_baseline <- caregiver_abb %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# change event name to year 2
+care_year2 <- care_baseline
+care_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+caregiver_abb <- rbind(care_baseline,care_year2)
+
+caregiver_abb <- caregiver_abb %>%
+  mutate(b15 = ifelse(crpbi_caregiver15_y==1, 1, 0))
+  
+ # calculate sums
+caregiver_sum <- caregiver_abb %>%
+  select(b15)
+sums <- rowSums(caregiver_sum, na.rm = TRUE)
+caregiver_abb$tot_neg <- sums
+```
+
+##### Dataset 2
+
+```{r}
+violence_abb_2 <- violence %>%
+  select(src_subject_id,eventname,ksads_ptsd_raw_766_p)
+```
+
+##### Dataset 3
+
+```{r}
+# only select needed asr variables
+asr_subset <- asr_parent %>%
+  select(src_subject_id, eventname, asr_q28_p) %>%
+  mutate(b28 = ifelse(asr_q28_p>0, 1, 0))
+```
+
+##### Dataset 4/5
+
+```{r}
+file_path <- file.path(path, 'culture-environment', 'ce_y_fes.csv')
+fes_youth = read.csv(file_path)
+
+fes_youth_abb <- fes_youth %>%
+  select(src_subject_id, eventname, fes_youth_q1, fes_youth_q6, fes_youth_q5, fes_youth_q2, fes_youth_q3, fes_youth_q4, fes_youth_q7, fes_youth_q8, fes_youth_q9)
+
+ # calculate sums
+fes_sum <- fes_youth_abb %>%
+  select(fes_youth_q1,fes_youth_q6,fes_youth_q5,fes_youth_q2,fes_youth_q3,fes_youth_q4,fes_youth_q7,fes_youth_q8,fes_youth_q9)
+sums <- rowSums(fes_sum, na.rm = TRUE)
+fes_youth_abb$tot_y <- sums
+```
+
+##### Final Dataset
+
+```{r}
+# combine to one household dysfunction dataset
+household_dysfunction <- lst(fes_youth_abb, caregiver_abb, violence_abb_2, asr_subset) %>%
+  reduce(full_join)
+
+household_abb <- household_dysfunction 
+
+# sum scores
+household_total <- household_abb %>%
+  select(tot_y, b28, ksads_ptsd_raw_766_p, tot_neg)
+sums <- rowSums(household_total, na.rm = TRUE)
+household_abb$tot_score_h <- sums
+
+household_abb <- household_abb %>%
+  select(-c(tot_y,b28,tot_neg,b15))
+```
+
+### Potentially Traumatic Events
+
+##### Dataset 1
+
+```{r}
+# load violence data
+violence_trauma <- violence %>%
+  select(src_subject_id,eventname,ksads_ptsd_raw_754_p, ksads_ptsd_raw_755_p, ksads_ptsd_raw_756_p, ksads_ptsd_raw_757_p, ksads_ptsd_raw_758_p, ksads_ptsd_raw_759_p, ksads_ptsd_raw_770_p)
+
+ # calculate sums
+trauma_sum <- violence_trauma %>%
+  select(ksads_ptsd_raw_754_p,ksads_ptsd_raw_755_p,ksads_ptsd_raw_756_p, ksads_ptsd_raw_757_p,ksads_ptsd_raw_758_p, ksads_ptsd_raw_759_p, ksads_ptsd_raw_770_p)
+sums <- rowSums(trauma_sum, na.rm = TRUE)
+violence_trauma$tot_score_vt <- sums
+```
+
+##### Dataset 2
+
+```{r}
+# load hospitilized data
+file_path <- file.path(path, 'physical-health', 'ph_p_mhx.csv')
+hospitalized = read.csv(file_path) %>%
+  select(src_subject_id, eventname, medhx_6s)
+```
+
+##### Dataset 3
+
+```{r}
+ile_path <- file.path(path, 'mental-health', 'mh_y_ksads_bg.csv')
+bully = read.csv(file_path)
+
+bully_abb <- bully %>%
+  select(src_subject_id,eventname,ksads_bully_raw_26)
+```
+
+##### Dataset 4
+
+```{r}
+file_path <- file.path(path, 'abcd-general', 'abcd_p_demo.csv')
+divorce = read.csv(file_path)
+
+divorce <- divorce %>%
+  select(src_subject_id, eventname, demo_prnt_marital_v2) %>%
+  mutate(sep_or_div = ifelse(demo_prnt_marital_v2==2 | demo_prnt_marital_v2==3 | demo_prnt_marital_v2==4, 1, 0)) %>%
+  select(src_subject_id, eventname, sep_or_div)
+```
+
+##### Final Dataset
+
+```{r}
+# combine to one potentially traumatic events dataset
+trauma_events <- lst(violence_trauma, divorce, hospitalized, bully_abb) %>%
+  reduce(full_join)
+
+trauma_abb <- trauma_events
+
+# sum scores
+trauma_total <- trauma_abb %>%
+  select(sep_or_div,ksads_bully_raw_26,medhx_6s,tot_score_vt)
+sums <- rowSums(trauma_total, na.rm = TRUE)
+trauma_abb$tot_score_t <- sums
+
+# pull out baseline for trauma
+trauma_baseline <- trauma_abb %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# since fam history is the same across all years, change event name to year 2
+trauma_year2 <- trauma_baseline
+trauma_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+trauma_abb <- rbind(trauma_baseline,trauma_year2)
+
+trauma_abb <- trauma_abb %>%
+  select(-c(tot_score_vt))
+```
+
+### Final ELA Dataset
+
+##### Create Dataset
+
+```{r}
+final_ela <- lst(violence_abb, parent_abb, neighborhood_abb, substance_abb, discrim_abb, scarcity_abb, household_abb, trauma_abb) %>%
+  reduce(full_join)
+
+# sum scores
+total <- final_ela %>%
+  select(tot_score_v,tot_score_p,tot_score_n,tot_score_s,tot_score_d,tot_score_sc,tot_score_h,tot_score_t)
+sums <- rowSums(total, na.rm = TRUE)
+final_ela$tot_score <- sums
+
+# rearrange columns
+final_ela <- final_ela %>%
+  select(-tot_score, everything(), tot_score)
+
+# make scores dataset
+scores <- final_ela %>%
+  select(src_subject_id, eventname, tot_score_v, tot_score_p, tot_score_n, tot_score_s, tot_score_d, tot_score_sc, tot_score_h, tot_score_t, tot_score)
+```
+
+##### Check Correlation
+
+```{r}
+filtered_data <- final_ela %>%
+  select(-src_subject_id, -eventname) %>%
+  na.omit()
+
+# Filter out variables with more than 2 unique levels
+binary_data <- filtered_data %>%
+  select_if(~length(unique(.)) == 2)
+
+# Compute the polychoric correlation, only for binary variables
+polychoric_matrix <- polychoric(binary_data)$rho
+
+# Transform the correlation matrix for visualization
+correlation_data <- as.data.frame(polychoric_matrix) %>%
+  rownames_to_column("Variable1") %>%
+  pivot_longer(cols = -Variable1, names_to = "Variable2", values_to =
+"Correlation")
+
+# Hi Margo I added this!
+index = 0
+for (x in correlation_data$Correlation) {
+  index = index + 1
+  if (x>0.85 & correlation_data$Variable1[index] != correlation_data$Variable2[index]) {
+    print(correlation_data$Correlation[index])
+    print(correlation_data$Variable1[index])
+    print(correlation_data$Variable2[index])
+  }
+}
+
+# Plot the correlation matrix as a heatmap
+ggplot(correlation_data, aes(x = Variable1, y = Variable2, fill =
+Correlation)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint =
+0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+  labs(fill = "Correlation", title = "Polychoric Correlation Matrix of Binary
+ELA Variables", x = NULL, y = NULL)
+```
+
+##### Make Yearly Dataset
+
+```{r}
+baseline_ela <- final_ela %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+baseline_scores <- scores %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+year2_ela <- final_ela %>%
+  filter(eventname == '2_year_follow_up_y_arm_1')
+
+year2_scores <- scores %>%
+  filter(eventname == '2_year_follow_up_y_arm_1')
+
+# make datasets for baseline and year 2
+baseline_and_2_ela <- final_ela %>%
+  filter(eventname == 'baseline_year_1_arm_1' | eventname == '2_year_follow_up_y_arm_1')
+
+final_scores <- scores %>%
+  filter(eventname == 'baseline_year_1_arm_1' | eventname == '2_year_follow_up_y_arm_1')
+```
+
+##### Final ELA Dataset
+
+```{r}
+# include year 2 in demographics
+demo_baseline <- demo_abb %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+
+# since substance is the same across all years, change event name to year 2
+demo_year2 <- demo_baseline
+demo_year2$eventname <- '2_year_follow_up_y_arm_1'
+
+# add the year 2 back into the dataset
+demo_abb <- rbind(demo_baseline,demo_year2)
+
+# merge datasets together
+ela_data <- lst(demo_abb, final_scores) %>%
+  reduce(full_join)
+```
+
+# ELA Visualizations
+
+### Total Score
+
+```{r}
+ela_data %>%
+  mutate(eventname = fct_relevel(eventname, rev)) %>%
+  ggplot(aes(x = eventname, y = tot_score)) + geom_boxplot() + labs(title = "Score Distribution by Year Collected", x = "Year Collected", y = "Total Score") + scale_x_discrete(labels = c("Baseline", "Year 2"))
+
+baseline_total <- ela_data %>%
+  filter(eventname == 'baseline_year_1_arm_1')
+summary(baseline_total$tot_score)
+
+year2_total <- ela_data %>%
+  filter(eventname == '2_year_follow_up_y_arm_1')
+summary(year2_total$tot_score)
+
+# t test
+t.test(baseline_total$tot_score, year2_total$tot_score, paired = TRUE)
+```
+
+### Spaghetti Plot
+
+```{r}
+generic_plot <- ggplot(ela_data, aes(eventname, tot_score, group = src_subject_id, color = tot_score)) +
+  geom_point() + 
+  geom_line(alpha=0.1)
+
+ela <- ela %>%
+  mutate(eventname = fct_relevel(eventname, "2_year_follow_up_y_arm_1", after=0))
+generic_plot_v <- ggplot(ela_data, aes(eventname, tot_score_v, group = src_subject_id), color = "cadetblue") +
+  geom_point() + 
+  geom_line(alpha=0.1)
+
+generic_plot_v + geom_smooth()
+```
+
+### Individual Plots
+
+```{r}
+ela <- ela_data %>%
+  mutate(eventname = fct_relevel(eventname, rev))
+
+# only kept interesting plots
+
+# Scarcity
+ela %>%
+  ggplot(aes(x = eventname, y = tot_score_sc)) + geom_boxplot() + labs(title = "Scarcity Score Distribution by Year Collected", x = "Year Collected", y = "Scarcity Score") + scale_x_discrete(labels = c("Baseline", "Year 2"))
+
+# Household Dysfunction
+ela %>%
+  ggplot(aes(x = eventname, y = tot_score_h)) + geom_boxplot() + labs(title = "Household Dysfunction Score Distribution by Year Collected", x = "Year Collected", y = "Household Dysfunction Score") + scale_x_discrete(labels = c("Baseline", "Year 2"))
+```
+
+### ELA Table
+
+```{r}
+table <- ela %>%
+  pivot_longer(cols = c(tot_score_p, tot_score_n, tot_score_s, tot_score_d, tot_score_v, tot_score_sc, tot_score_h, tot_score_t), names_to = "Type", values_to = "Scores") %>%
+  group_by(Type) %>%
+  mutate(Type = fct_recode(Type,
+         'Parental Instability' = 'tot_score_p',
+         'Neighborhood Threat' = 'tot_score_n',
+         'Prenatal Substance Abuse' = 'tot_score_s',
+         'Discrimination' = 'tot_score_d',
+         'Physical and Sexual Violence' = 'tot_score_v',
+         'Scarcity' = 'tot_score_sc',
+         'Household Dysfunction' = 'tot_score_h',
+         'Potentially Traumatic Events' = 'tot_score_t'),
+         Visit = fct_recode(eventname, 
+                            "Baseline" = "baseline_year_1_arm_1",
+                            "2 Year" = "2_year_follow_up_y_arm_1")) %>%
+  select(Visit, Type, Scores)
+
+# baseline summary
+a <- table %>%
+  filter(Visit == 'Baseline') %>%
+  summarise('Baseline Mean' = mean(Scores, na.rm = TRUE))
+
+# year 2 summary
+b <- table %>%
+  filter(Visit == '2 Year') %>%
+  summarise('Follow Up Mean' = mean(Scores, na.rm = TRUE))
+
+# combine
+a %>%
+  full_join(b, by= 'Type') %>%
+  rename('ELA Type' = 'Type') %>%
+  mutate(Difference = .data[['Baseline Mean']] - .data[['Follow Up Mean']]) %>%
+  gt() %>%
+  fmt_number(decimals = 2) %>%
+  gt_color_rows(columns = Difference,
+                palette = "ggsci::blue_material",
+                pal_type = "continuous") %>%
+  tab_header('Mean Adversity Scores by ELA Types')
+```
+
+# Outcome Variables
+
+### Internal/External
+
+```{r}
+# treating 6 month as baseline
+file_path <- file.path(path, 'mental-health', 'mh_y_bpm.csv')
+internal_external <- read.csv(file_path) %>%
+  select(src_subject_id, eventname, bpm_y_scr_internal_r, bpm_y_scr_external_r) %>%
+  filter(eventname == '6_month_follow_up_arm_1' | eventname == '2_year_follow_up_y_arm_1') %>%
+  mutate(eventname = ifelse(eventname == '6_month_follow_up_arm_1', 'baseline_year_1_arm_1', eventname))
+```
+
+### Depression
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_cbcl.csv')
+depression <- read.csv(file_path) %>% 
+  select(src_subject_id, eventname, cbcl_scr_dsm5_depress_r) %>%
+  filter(eventname == 'baseline_year_1_arm_1' | eventname == '2_year_follow_up_y_arm_1')
+```
+
+### Anxiety
+
+```{r}
+file_path <- file.path(path, 'mental-health', 'mh_p_asr.csv')
+anxiety <- read.csv(file_path) %>% 
+  select(src_subject_id, eventname, asr_scr_anxdisord_r) %>%
+  filter(eventname == 'baseline_year_1_arm_1' | eventname == '2_year_follow_up_y_arm_1')
+```
+
+### Combining Datasets
+
+```{r}
+psychopathology <- lst(internal_external, anxiety, depression) %>%
+  reduce(full_join)
+
+# rename
+psychopathology$internal <- psychopathology$bpm_y_scr_internal_r
+psychopathology$external <- psychopathology$bpm_y_scr_external_r
+psychopathology$depression <- psychopathology$cbcl_scr_dsm5_depress_r
+psychopathology$anxiety <- psychopathology$asr_scr_anxdisord_r
+
+psychopathology <- psychopathology %>%
+  select(src_subject_id, eventname, internal, external, depression, anxiety)
+```
+
+### Create Full Dataset
+
+```{r}
+# combine with psychopathology
+full <- ela_data %>%
+  full_join(psychopathology, by = c('src_subject_id', 'eventname'))
+```
+
+# Models
+
+### Data Cleaning
+
+##### Weighting Variables
+
+```{r}
+full <- full %>%
+  mutate(eventname = fct_relevel(eventname, rev),
+         eventname = fct_recode(eventname,
+                                "Baseline" = "baseline_year_1_arm_1",
+                                "2 Year" = "2_year_follow_up_y_arm_1"),
+         w_tot_score = (1/8)*((1/9)*tot_score_v+(1/33)*tot_score_p+
+                                   (1/4)*tot_score_n+(1/7)*tot_score_s+
+                                   (1/11)*tot_score_d+(1/11)*tot_score_sc+
+                                   (1/13)*tot_score_h+(1/10)*tot_score_t),
+         w_v = (1/9)*tot_score_v,
+         w_p = (1/33)*tot_score_p,
+         w_n = (1/4)*tot_score_n,
+         w_s = (1/7)*tot_score_s,
+         w_d = (1/11)*tot_score_d,
+         w_sc = (1/11)*tot_score_sc,
+         w_h = (1/13)*tot_score_h,
+         w_t = (1/10)*tot_score_t)
+```
+
+##### Table 1
+
+```{r}
+full <- full %>%
+  mutate(parent_ed = fct_relevel(parent_ed, c("Less than High School Diploma", "High School Diploma/GED", "Some College", "Bachelor's Degree", "Post Graduate Degree")),
+         income = fct_relevel(income, c("<$5,000", "$5,000-$11,999", "$12,000-$15,999", "$16,000-$24,999", "$25,000-$34,999", "$35,000-$49,999", "$50,000-$74,999", "$75,000-$99,999", "$100,000-$199,999", ">$200,000")))
+
+full <- full %>%
+  mutate(tot_categories = ifelse(tot_score < 16, "0-15", ifelse(tot_score >= 16 & tot_score < 31, "16-30", ifelse(tot_score >= 31 & tot_score < 50, "31-47", "NA"))))
+
+full_base <- full %>% filter(eventname=="baseline_year_1_arm_1")
+```
+
+```{r}
+# Long version
+full_base <- full_base %>%
+  mutate(income = fct_collapse(income,
+                               "<$25,000" = c("<$5,000", "$5,000-$11,999", "$12,000-$15,999", "$16,000-$24,999"),
+                               "$25,000-$74,999" = c("$25,000-$34,999", "$35,000-$49,999", "$50,000-$74,999"),
+                               "$75,000-$199,999" = c("$75,000-$99,999", "$100,000-$199,999"),
+                               ">$200,000" = ">$200,000")) %>%
+  filter(sex != "Intersex-Male",ethnicity != "Unknown") %>% 
+  select(-ethnicity)
+
+labels <- list(variables = list(sex = "Sex", race = "Race", 
+                                #ethnicity = "Ethnicity",
+                                parent_ed = "Parent Education", income = "Income",
+                                internal = "Internal CBCL Score (out of 12)",
+                                external = "External CBCL Score (out of 14)", 
+                                anxiety = "Anxiety Score (out of 12)", 
+                                depression = "Depression Score (out of 28)"),
+    groups=list("", "ELA Score"))
+strata <- c(list(Total=full_base), split(full_base, full_base$tot_categories))
+
+table1(strata, labels, groupspan=c(1,3), caption="Demographic Makeup of ABCD Study", render.missing=NULL)
+
+# Just the Internal stuff
+my.render.cont <- function(x) {
+    with(stats.apply.rounding(stats.default(x), digits=2), c("",
+        "Mean (SD)"=sprintf("%s (&plusmn; %s)", MEAN, SD)))
+}
+
+new_base <- full_base %>%
+  select(-c(sex, race, parent_ed, income))
+
+labels <- list(variables = list(internal = "Internal CBCL Score (out of 12)",
+                                external = "External CBCL Score (out of 14)", 
+                                anxiety = "Anxiety Score (out of 12)", 
+                                depression = "Depression Score (out of 28)"),
+    groups=list("", "ELA Score"))
+strata <- c(list(Total=new_base), split(new_base, new_base$tot_categories))
+
+table1(strata, labels, groupspan=c(1,3), caption="Demographic Makeup of ABCD Study", render.continuous=my.render.cont, render.missing=NULL)
+```
+
+```{r}
+# Final Table
+my.render.cont <- function(x) {
+    with(stats.apply.rounding(stats.default(x), digits=2), c("",
+        "Mean (SD)"=sprintf("%s (&plusmn; %s)", MEAN, SD)))
+}
+
+full_base <- full_base %>%
+  mutate(income = fct_collapse(income,
+                               "<$25,000" = c("<$5,000", "$5,000-$11,999", "$12,000-$15,999", "$16,000-$24,999"),
+                               "$25,000-$74,999" = c("$25,000-$34,999", "$35,000-$49,999", "$50,000-$74,999"),
+                               "$75,000-$199,999" = c("$75,000-$99,999", "$100,000-$199,999"),
+                               ">$200,000" = ">$200,000")) %>%
+  mutate(parent_educ = fct_collapse(parent_ed,
+                                    "High School/GED or Less" = c("Less than High School Diploma", "High School Diploma/GED"),
+                                    "Some College or Bachelor's Degree" = c("Some College", "Bachelor's Degree"),
+                                    "Post Graduate Degree" = "Post Graduate Degree")) %>%
+  filter(sex != "Intersex-Male",ethnicity != "Unknown") %>% 
+  select(-ethnicity)
+
+labels <- list(variables = list(sex = "Sex", race = "Race", 
+                                #ethnicity = "Ethnicity",
+                                parent_educ = "Parent Education", income = "Income",
+                                internal = "Internal CBCL Score (out of 12)",
+                                external = "External CBCL Score (out of 14)", 
+                                anxiety = "Anxiety Score (out of 12)", 
+                                depression = "Depression Score (out of 28)"),
+    groups=list("", "Total ELA Score"))
+strata <- c(list(Total=full_base), split(full_base, full_base$tot_categories))
+
+table1(strata, labels, groupspan=c(1,3), caption="Demographic Makeup of ABCD Study", render.continuous=my.render.cont, render.missing=NULL)
+```
+
+##### Covariates
+
+```{r}
+full <- full %>%
+  mutate(aian = ifelse(!(is.na(race) | race!="American Indian or Alaska Native"), 1, 0),
+         asian = ifelse(!(is.na(race) | race!="Asian"), 1, 0),
+         black = ifelse(!(is.na(race) | race!="Black"), 1, 0),
+         other = ifelse(!(is.na(race) | race!="Other"), 1, 0),
+         pacific = ifelse(!(is.na(race) | race!="Pacific Islander"), 1, 0),
+         two = ifelse(!(is.na(race) | race!="Two or more races"), 1, 0),
+         white = ifelse(!(is.na(race) | race!="White"), 1, 0),
+         unknown_race = ifelse(aian==0 & asian==0 & black==0 & other==0 & pacific==0 & two==0 & white==0, 1, 0)) %>%
+  select(-c(race))
+```
+
+##### Site/Family ID
+
+```{r}
+file_path <- file.path(path, 'abcd-general', 'abcd_y_lt.csv')
+id <- read.csv(file_path) %>%
+  select(src_subject_id, eventname, site_id_l, rel_family_id) %>%
+  mutate(eventname = fct_relevel(eventname, rev),
+         eventname = fct_recode(eventname,
+                                "Baseline" = "baseline_year_1_arm_1",
+                                "2 Year" = "2_year_follow_up_y_arm_1"))
+
+# join
+full <- id %>%
+  right_join(full, by = c('src_subject_id', 'eventname'))
+
+full <- fill(full, rel_family_id, .direction = 'down')
+```
+
+### Depression
+
+##### EDA
+
+```{r}
+plot <- full %>%
+  pivot_longer(cols = c('w_tot_score', 'w_v', 
+               'w_p', 'w_n', 'w_s',
+               'w_d', 'w_sc', 'w_h','w_t'), 
+               names_to = 'type_score',
+               values_to = 'value_score') 
+
+labels <- c('w_d'= 'Discrimination', 'w_h'='Household Dysfunction', 'w_n'='Neighborhood Threat', 'w_p'='Parental Instability', 'w_s'='Prenatal Substance Exposure', 'w_sc'='Scarcity', 'w_t'='Potential Trauma', 'w_v'='Violence', 'w_tot_score' = 'Total Score')
+
+plot %>%
+  mutate(type_score = factor(type_score, levels = 
+                               names(labels), labels = labels)) %>%
+  ggplot(aes(y = depression, x = value_score, color = eventname)) + 
+  geom_jitter(alpha = 0.5) + geom_smooth(method = 'lm') + 
+  facet_wrap(~type_score, labeller = labeller(type_score = labels)) +
+  labs(y = 'Depression Score', x = "Total Score",
+    title = 'Depression Score vs Total Scores',
+    color = 'Event Name')
+```
+
+##### Fit Models
+
+```{r}
+mod1 <- lmer(depression ~ w_tot_score + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod2 <- lmer(depression ~ w_v + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod3 <- lmer(depression ~ w_p + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod4 <- lmer(depression ~ w_n + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod5 <- lmer(depression ~ w_s + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod6 <- lmer(depression ~ w_d + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod7 <- lmer(depression ~ w_sc + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod8 <- lmer(depression ~ w_h + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod9 <- lmer(depression ~ w_t + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+```
+
+##### Forest Plot
+
+```{r}
+# standardize
+f_m1 <- standardize_parameters(mod1)
+f_m2 <- standardize_parameters(mod2) 
+f_m3 <- standardize_parameters(mod3) 
+f_m4 <- standardize_parameters(mod4) 
+f_m5 <- standardize_parameters(mod5) 
+f_m6 <- standardize_parameters(mod6) 
+f_m7 <- standardize_parameters(mod7) 
+f_m8 <- standardize_parameters(mod8) 
+f_m9 <- standardize_parameters(mod9) 
+
+# Combine
+forest1 <- rbind(f_m1, f_m2, f_m3, f_m4, f_m5, f_m6, f_m7, f_m8, f_m9) %>%
+  filter(grepl("^w_", Parameter)) %>%
+  select(Parameter, Std_Coefficient, CI_low, CI_high)
+
+forest1$Score <- 'Depression'
+
+
+# Create a vector with labels for each model
+label <- c("Total", "Violence", "Parental Instability", "Neighborhood Threat",
+           "Prenatal Substance", "Discrimination", "Scarcity", 
+           "Household Dysfunction", "Potential Trauma")
+
+# create plot
+forest1 %>%
+  ggplot(aes(x=fct_inorder(label),y=Std_Coefficient,ymin=CI_low,ymax=CI_high)) +
+  geom_pointrange(color = "black", size = .5) +
+  geom_hline(yintercept = 0, color = "steelblue") +  
+  coord_flip() +
+  xlab(" ") +
+  ylab("Estimate (95% Confidence Interval)") +
+  labs(title ="Depression Scores") +
+   theme(
+ plot.title = element_text(size = 14, face = "bold"),
+ axis.text.x = element_text(size = 12),
+ axis.text.y = element_text(size = 12))
+```
+
+### Anxiety
+
+##### EDA
+
+```{r}
+plot %>%
+  mutate(type_score = factor(type_score, levels = 
+                               names(labels), labels = labels)) %>%
+  ggplot(aes(y = anxiety, x = value_score, color = eventname)) + 
+  geom_jitter(alpha = 0.5) + geom_smooth(method = 'lm') + 
+  facet_wrap(~type_score, labeller = labeller(type_score = labels)) +
+  labs(y = 'Anxiety Score', x = "Total Score",
+    title = 'Anxiety Score vs Total Scores',
+    color = 'Event Name')
+```
+
+##### Fit Models
+
+```{r}
+mod1 <- lmer(anxiety ~ w_tot_score + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod2 <- lmer(anxiety ~ w_v + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod3 <- lmer(anxiety ~ w_p + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod4 <- lmer(anxiety ~ w_n + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod5 <- lmer(anxiety ~ w_s + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod6 <- lmer(anxiety ~ w_d + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod7 <- lmer(anxiety ~ w_sc + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod8 <- lmer(anxiety ~ w_h + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod9 <- lmer(anxiety ~ w_t + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+```
+
+##### Forest Plot
+
+```{r}
+# standardize
+f_m1 <- standardize_parameters(mod1)
+f_m2 <- standardize_parameters(mod2) 
+f_m3 <- standardize_parameters(mod3) 
+f_m4 <- standardize_parameters(mod4) 
+f_m5 <- standardize_parameters(mod5) 
+f_m6 <- standardize_parameters(mod6) 
+f_m7 <- standardize_parameters(mod7) 
+f_m8 <- standardize_parameters(mod8) 
+f_m9 <- standardize_parameters(mod9) 
+
+# Combine
+forest2 <- rbind(f_m1, f_m2, f_m3, f_m4, f_m5, f_m6, f_m7, f_m8, f_m9) %>%
+  filter(grepl("^w_", Parameter)) %>%
+  select(Parameter, Std_Coefficient, CI_low, CI_high)
+
+forest2$Score <- 'Anxiety'
+
+# Create a vector with labels for each model
+label <- c("Total", "Violence", "Parental Instability", "Neighborhood Threat",
+           "Prenatal Substance", "Discrimination", "Scarcity", 
+           "Household Dysfunction", "Potential Trauma")
+
+# create plot
+forest2 %>%
+  ggplot(aes(x=fct_inorder(label),y=Std_Coefficient,ymin=CI_low,ymax=CI_high)) +
+  geom_pointrange(color = "black", size = .5) +
+  geom_hline(yintercept = 0, color = "steelblue") +  
+  coord_flip() +
+  xlab(" ") +
+  ylab("Estimate (95% Confidence Interval)") +
+  labs(title ="Anxiety Scores") +
+   theme(
+ plot.title = element_text(size = 14, face = "bold"),
+ axis.text.x = element_text(size = 12),
+ axis.text.y = element_text(size = 12))
+```
+
+### Internal
+
+##### EDA
+
+```{r}
+plot %>%
+  mutate(type_score = factor(type_score, levels = 
+                               names(labels), labels = labels)) %>%
+  ggplot(aes(y = internal, x = value_score, color = eventname)) + 
+  geom_jitter(alpha = 0.5) + geom_smooth(method = 'lm') + 
+  facet_wrap(~type_score, labeller = labeller(type_score = labels)) +
+  labs(y = 'Internal Score', x = "Total Score",
+    title = 'Internal Score vs Total Scores',
+    color = 'Event Name')
+```
+
+##### Fit Models
+
+```{r}
+mod1 <- lmer(internal ~ w_tot_score + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod2 <- lmer(internal ~ w_v + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod3 <- lmer(internal ~ w_p + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod4 <- lmer(internal ~ w_n + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod5 <- lmer(internal ~ w_s + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod6 <- lmer(internal ~ w_d + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod7 <- lmer(internal ~ w_sc + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod8 <- lmer(internal ~ w_h + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod9 <- lmer(internal ~ w_t + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+```
+
+##### Forest Plot
+
+```{r}
+# standardize
+f_m1 <- standardize_parameters(mod1)
+f_m2 <- standardize_parameters(mod2) 
+f_m3 <- standardize_parameters(mod3) 
+f_m4 <- standardize_parameters(mod4) 
+f_m5 <- standardize_parameters(mod5) 
+f_m6 <- standardize_parameters(mod6) 
+f_m7 <- standardize_parameters(mod7) 
+f_m8 <- standardize_parameters(mod8) 
+f_m9 <- standardize_parameters(mod9) 
+
+# Combine
+forest3 <- rbind(f_m1, f_m2, f_m3, f_m4, f_m5, f_m6, f_m7, f_m8, f_m9) %>%
+  filter(grepl("^w_", Parameter)) %>%
+  select(Parameter, Std_Coefficient, CI_low, CI_high)
+
+forest3$Score <- 'Internal'
+
+# Create a vector with labels for each model
+label <- c("Total", "Violence", "Parental Instability", "Neighborhood Threat",
+           "Prenatal Substance", "Discrimination", "Scarcity", 
+           "Household Dysfunction", "Potential Trauma")
+
+# create plot
+forest3 %>%
+  ggplot(aes(x=fct_inorder(label),y=Std_Coefficient,ymin=CI_low,ymax=CI_high)) +
+  geom_pointrange(color = "black", size = .5) +
+  geom_hline(yintercept = 0, color = "steelblue") +  
+  coord_flip() +
+  xlab(" ") +
+  ylab("Estimate (95% Confidence Interval)") +
+  labs(title ="Internal Scores") +
+   theme(
+ plot.title = element_text(size = 14, face = "bold"),
+ axis.text.x = element_text(size = 12),
+ axis.text.y = element_text(size = 12))
+```
+
+### External
+
+##### EDA
+
+```{r}
+plot %>%
+  mutate(type_score = factor(type_score, levels = 
+                               names(labels), labels = labels)) %>%
+  ggplot(aes(y = external, x = value_score, color = eventname)) + 
+  geom_jitter(alpha = 0.5) + geom_smooth(method = 'lm') + 
+  facet_wrap(~type_score, labeller = labeller(type_score = labels)) +
+  labs(y = 'External Score', x = "Total Score",
+    title = 'External Score vs Total Scores',
+    color = 'Event Name')
+```
+
+##### Fit Models
+
+```{r}
+mod1 <- lmer(external ~ w_tot_score + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod2 <- lmer(external ~ w_v + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname +
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod3 <- lmer(external ~ w_p + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod4 <- lmer(external ~ w_n + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod5 <- lmer(external ~ w_s + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod6 <- lmer(external ~ w_d + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod7 <- lmer(external ~ w_sc + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod8 <- lmer(external ~ w_h + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+  
+mod9 <- lmer(external ~ w_t + age + sex + ethnicity + 
+               parent_ed + income + BMI + aian + asian + black + 
+               other + pacific + two + white + unknown_race + eventname + 
+               (1|rel_family_id/src_subject_id) + (1|site_id_l), data = full)
+```
+
+##### Forest Plot
+
+```{r}
+# standardize
+f_m1 <- standardize_parameters(mod1)
+f_m2 <- standardize_parameters(mod2) 
+f_m3 <- standardize_parameters(mod3) 
+f_m4 <- standardize_parameters(mod4) 
+f_m5 <- standardize_parameters(mod5) 
+f_m6 <- standardize_parameters(mod6) 
+f_m7 <- standardize_parameters(mod7) 
+f_m8 <- standardize_parameters(mod8) 
+f_m9 <- standardize_parameters(mod9) 
+
+# Combine
+forest4 <- rbind(f_m1, f_m2, f_m3, f_m4, f_m5, f_m6, f_m7, f_m8, f_m9) %>%
+  filter(grepl("^w_", Parameter)) %>%
+  select(Parameter, Std_Coefficient, CI_low, CI_high)
+
+forest4$Score <- 'External'
+
+# Create a vector with labels for each model
+label <- c("Total", "Violence", "Parental Instability", "Neighborhood Threat",
+           "Prenatal Substance", "Discrimination", "Scarcity", 
+           "Household Dysfunction", "Potential Trauma")
+
+# create plot
+forest4 %>%
+  ggplot(aes(x=fct_inorder(label),y=Std_Coefficient,ymin=CI_low,ymax=CI_high)) +
+  geom_pointrange(color = "black", size = .5) +
+  geom_hline(yintercept = 0, color = "steelblue") +  
+  coord_flip() +
+  xlab(" ") +
+  ylab("Estimate (95% Confidence Interval)") +
+  labs(title ="External Scores") +
+   theme(
+ plot.title = element_text(size = 14, face = "bold"),
+ axis.text.x = element_text(size = 12),
+ axis.text.y = element_text(size = 12))
+```
+
+### Overall Forest Plot
+
+```{r}
+forest <- rbind(forest1, forest2, forest3, forest4)
+
+label2 <- rep(label, times = 4)
+
+cols = c("Potential Trauma" = "#dc8d9d", "Household Dysfunction" = "#a27d0f", "Scarcity" = "#ffcc33", "Discrimination" = "#7a0019", "Prenatal Substance" = "#95b4d0", "Neighborhood Threat" = "#ce0000", "Parental Instability" = "#f0d581", "Violence" = "#2b5d8a", "Total" = "#000")
+
+forest %>%
+  ggplot(aes(x=fct_inorder(label2),y=Std_Coefficient,ymin=CI_low,ymax=CI_high, color = fct_rev(fct_inorder(label2)))) +
+  geom_pointrange(size = .1) +
+  geom_hline(yintercept = 0, color = "steelblue", type="longdash") +  
+  coord_flip() +
+  xlab(" ") +
+  ylab("Estimate (95% Confidence Interval)") +
+  labs(title ="Score Types by ELA", color = "ELA Category") +
+   theme(legend.position = 'none',
+ plot.title = element_text(size = 14, face = "bold"),
+ axis.text.x = element_text(size = 12),
+ axis.text.y = element_text(size = 12)) + 
+  facet_wrap(~Score) + 
+  scale_color_manual(values=cols) + theme_bw()
+```
+
+### 
